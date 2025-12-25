@@ -21,7 +21,7 @@ fn test_plan_validation() -> Result<()> {
     // Create source file
     fs::write(root.join("a.txt"), "hello")?;
 
-    let plan = tfs::model::Plan::load_plan(&manifest_path)?;
+    let plan = tfs::model::load_plan(&manifest_path)?;
     plan.validate()?;
     Ok(())
 }

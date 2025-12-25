@@ -1,4 +1,5 @@
 use anyhow::Result;
+use clap::ValueEnum;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -59,7 +60,7 @@ pub enum TransactionMode {
 }
 
 /// Collision resolution policy.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, ValueEnum)]
 pub enum CollisionPolicy {
     /// Fail the operation.
     #[serde(rename = "fail")]

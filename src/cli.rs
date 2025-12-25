@@ -43,7 +43,7 @@ pub struct ApplyArgs {
 
     /// Override collision policy.
     #[arg(long)]
-    pub collision_policy: Option<model::CollisionPolicy>,
+    pub collision_policy: Option<crate::model::CollisionPolicy>,
 
     /// Override root directory.
     #[arg(long)]

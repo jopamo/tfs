@@ -1,4 +1,3 @@
-use anyhow::{Context, Result};
 use crate::cli::{ApplyArgs, UndoArgs};
 use crate::exit_codes::exit;
 use crate::journal::JournalWriter;
@@ -7,13 +6,13 @@ use crate::reporter::Reporter;
 use crate::resolve;
 use crate::transaction::TransactionManager;
 use crate::validate;
+use anyhow::{Context, Result};
 
 pub fn apply(args: ApplyArgs) -> Result<i32> {
     let mut reporter = Reporter::new(args.json);
 
     // Load and validate plan
-    let mut plan = model::load_plan(&args.manifest)
-        .context("failed to load manifest")?;
+    let mut plan = model::load_plan(&args.manifest).context("failed to load manifest")?;
     if let Some(root) = args.root {
         plan.root = root;
     }
@@ -31,7 +30,9 @@ pub fn apply(args: ApplyArgs) -> Result<i32> {
     validate::preflight_check(&plan)?;
 
     if args.validate_only {
-        reporter.record(crate::events::Event::PlanValidated { plan_id: uuid::Uuid::new_v4() });
+        reporter.record(crate::events::Event::PlanValidated {
+            plan_id: uuid::Uuid::new_v4(),
+        });
         return Ok(exit::SUCCESS);
     }
 
@@ -59,7 +60,9 @@ pub fn apply(args: ApplyArgs) -> Result<i32> {
                 dst: op.resolved_dst.clone(),
             });
         }
-        reporter.record(crate::events::Event::TxnCommitted { plan_id: uuid::Uuid::new_v4() });
+        reporter.record(crate::events::Event::TxnCommitted {
+            plan_id: uuid::Uuid::new_v4(),
+        });
         return Ok(exit::SUCCESS);
     }
 
@@ -81,7 +84,9 @@ pub fn apply(args: ApplyArgs) -> Result<i32> {
                 });
                 if plan.transaction == model::TransactionMode::All {
                     txn.rollback()?;
-                    reporter.record(crate::events::Event::TxnAborted { plan_id: uuid::Uuid::new_v4() });
+                    reporter.record(crate::events::Event::TxnAborted {
+                        plan_id: uuid::Uuid::new_v4(),
+                    });
                     return Ok(exit::TRANSACTIONAL_FAILURE);
                 }
                 // In op mode, continue with next operation
@@ -90,7 +95,9 @@ pub fn apply(args: ApplyArgs) -> Result<i32> {
     }
 
     txn.commit()?;
-    reporter.record(crate::events::Event::TxnCommitted { plan_id: uuid::Uuid::new_v4() });
+    reporter.record(crate::events::Event::TxnCommitted {
+        plan_id: uuid::Uuid::new_v4(),
+    });
     Ok(exit::SUCCESS)
 }
 
@@ -98,7 +105,9 @@ pub fn undo(args: UndoArgs) -> Result<i32> {
     let mut reporter = Reporter::new(args.json);
     let journal_path = args.journal.clone();
     let entries = crate::journal::read_journal(journal_path.clone())?;
-    reporter.record(crate::events::Event::UndoStarted { journal_id: uuid::Uuid::new_v4() });
+    reporter.record(crate::events::Event::UndoStarted {
+        journal_id: uuid::Uuid::new_v4(),
+    });
 
     // Open journal for appending undo records
     let mut journal_writer = crate::journal::JournalWriter::open(journal_path)?;
@@ -110,7 +119,9 @@ pub fn undo(args: UndoArgs) -> Result<i32> {
                 // Would undo
             }
         }
-        reporter.record(crate::events::Event::UndoCompleted { journal_id: uuid::Uuid::new_v4() });
+        reporter.record(crate::events::Event::UndoCompleted {
+            journal_id: uuid::Uuid::new_v4(),
+        });
         return Ok(exit::SUCCESS);
     }
 
@@ -139,6 +150,29 @@ pub fn undo(args: UndoArgs) -> Result<i32> {
                     let dst = entry.dst.as_ref().context("missing dst in journal")?;
                     crate::fsops::mv(backup_path, dst, false)?;
                 }
+                crate::journal::UndoMetadata::MoveWithOverwrite {
+                    original_src,
+                    backup_path,
+                } => {
+                    let dst = entry.dst.as_ref().context("missing dst in journal")?;
+                    // 1. Move current dst back to original src (reversing the move)
+                    crate::fsops::mv(dst, original_src, false)?;
+                    // 2. Restore backup to dst
+                    crate::fsops::mv(backup_path, dst, false)?;
+                }
+                crate::journal::UndoMetadata::CopyWithOverwrite {
+                    created_dst,
+                    backup_path,
+                } => {
+                    // 1. Remove the copy at dst
+                    if created_dst.is_file() {
+                        std::fs::remove_file(created_dst)?;
+                    } else if created_dst.is_dir() {
+                        std::fs::remove_dir_all(created_dst)?;
+                    }
+                    // 2. Restore backup to dst
+                    crate::fsops::mv(backup_path, created_dst, false)?;
+                }
             }
             // Write undo journal entry
             let undo_entry = crate::journal::JournalEntry {
@@ -154,6 +188,8 @@ pub fn undo(args: UndoArgs) -> Result<i32> {
             journal_writer.write(&undo_entry)?;
         }
     }
-    reporter.record(crate::events::Event::UndoCompleted { journal_id: uuid::Uuid::new_v4() });
+    reporter.record(crate::events::Event::UndoCompleted {
+        journal_id: uuid::Uuid::new_v4(),
+    });
     Ok(exit::SUCCESS)
 }

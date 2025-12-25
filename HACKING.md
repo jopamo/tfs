@@ -1,9 +1,3 @@
-Below is a **full `HACKING.md` for `tfs`**, deliberately modeled on `txed`’s norms, tone, and rigor, but adapted to filesystem semantics.
-
-You can drop this in verbatim.
-
----
-
 # HACKING
 
 Developer onboarding for `tfs`.
@@ -336,5 +330,3 @@ As a contributor, your job is to ensure that:
 * nothing non-deterministic slips through review
 
 If the tool surprises the user—or an agent—it has failed.
-
----

@@ -3,7 +3,7 @@ use chrono::Utc;
 
 /// Transaction manager for `all` or `op` mode.
 pub struct TransactionManager {
-    mode: crate::model::TransactionMode,
+    _mode: crate::model::TransactionMode,
     collision_policy: crate::model::CollisionPolicy,
     allow_overwrite: bool,
     journal_writer: Option<crate::journal::JournalWriter>,
@@ -18,7 +18,7 @@ impl TransactionManager {
         journal_writer: Option<crate::journal::JournalWriter>,
     ) -> Self {
         Self {
-            mode,
+            _mode: mode,
             collision_policy,
             allow_overwrite,
             journal_writer,
@@ -42,46 +42,139 @@ impl TransactionManager {
         self.write_journal(&entry)?;
 
         // Determine resolved paths (should be already resolved in normalized op)
-        let src = op.resolved_src.as_ref().map(|p| p.as_path());
-        let dst = op.resolved_dst.as_ref().map(|p| p.as_path());
+        let src = op.resolved_src.as_deref();
+        let dst_opt = op.resolved_dst.as_deref();
+
+        // Handle collision policy if dst exists
+        let mut final_dst_path = match dst_opt {
+            Some(p) => p.to_path_buf(),
+            None => std::path::PathBuf::new(),
+        };
+        let mut backup_path_opt = None;
+        let mut collision_details = None;
+
+        if let Some(dst) = dst_opt {
+            // resolve_collision returns (final_dst, backup_path)
+            let (resolved, backup) =
+                crate::policy::resolve_collision(self.collision_policy, dst, self.allow_overwrite)?;
+
+            if resolved != dst || backup.is_some() {
+                collision_details = Some(crate::journal::CollisionDetails {
+                    policy: self.collision_policy,
+                    final_dst: resolved.clone(),
+                    backup_path: backup.clone(),
+                });
+            }
+            final_dst_path = resolved;
+            backup_path_opt = backup;
+        }
+
+        // Perform backup if needed
+        if let Some(backup) = &backup_path_opt {
+            // We need to move the EXISTING dst to backup
+            // dst_opt must be Some here
+            let dst = dst_opt.unwrap();
+            crate::fsops::mv(dst, backup, false).context("failed to create backup")?;
+        }
 
         // Execute based on operation type
         match &op.op {
-            crate::model::Operation::Mkdir { dst: dst_path, parents } => {
-                let dst = dst.unwrap_or_else(|| dst_path.as_path());
+            crate::model::Operation::Mkdir {
+                dst: dst_path,
+                parents,
+            } => {
+                let dst = if op.resolved_dst.is_some() {
+                    &final_dst_path
+                } else {
+                    dst_path.as_path()
+                };
                 crate::fsops::mkdir(dst, *parents)?;
                 // Record undo metadata
-                let undo = crate::journal::UndoMetadata::Mkdir { created_dir: dst.to_path_buf() };
-                self.record_success(op.id, src, Some(dst), None, Some(undo))?;
+                let undo = crate::journal::UndoMetadata::Mkdir {
+                    created_dir: dst.to_path_buf(),
+                };
+                self.record_success(op.id, src, Some(dst), collision_details, Some(undo))?;
             }
-            crate::model::Operation::Move { src: src_path, dst: dst_path, cross_device } => {
-                let src = src.unwrap_or_else(|| src_path.as_path());
-                let dst = dst.unwrap_or_else(|| dst_path.as_path());
-                // Apply collision policy (should have been resolved earlier)
-                // TODO: integrate collision policy
+            crate::model::Operation::Move {
+                src: src_path,
+                dst: dst_path,
+                cross_device,
+            } => {
+                let src = src.unwrap_or(src_path.as_path());
+                let dst = if op.resolved_dst.is_some() {
+                    &final_dst_path
+                } else {
+                    dst_path.as_path()
+                };
                 let _result = crate::fsops::mv(src, dst, *cross_device)?;
-                let undo = crate::journal::UndoMetadata::Move { original_src: src.to_path_buf() };
-                self.record_success(op.id, Some(src), Some(dst), None, Some(undo))?;
+
+                let undo = if let Some(bk) = backup_path_opt {
+                    crate::journal::UndoMetadata::MoveWithOverwrite {
+                        original_src: src.to_path_buf(),
+                        backup_path: bk,
+                    }
+                } else {
+                    crate::journal::UndoMetadata::Move {
+                        original_src: src.to_path_buf(),
+                    }
+                };
+                self.record_success(op.id, Some(src), Some(dst), collision_details, Some(undo))?;
             }
-            crate::model::Operation::Copy { src: src_path, dst: dst_path, recursive } => {
-                let src = src.unwrap_or_else(|| src_path.as_path());
-                let dst = dst.unwrap_or_else(|| dst_path.as_path());
+            crate::model::Operation::Copy {
+                src: src_path,
+                dst: dst_path,
+                recursive,
+            } => {
+                let src = src.unwrap_or(src_path.as_path());
+                let dst = if op.resolved_dst.is_some() {
+                    &final_dst_path
+                } else {
+                    dst_path.as_path()
+                };
                 let _result = crate::fsops::cp(src, dst, *recursive)?;
-                let undo = crate::journal::UndoMetadata::Copy { created_dst: dst.to_path_buf() };
-                self.record_success(op.id, Some(src), Some(dst), None, Some(undo))?;
+
+                let undo = if let Some(bk) = backup_path_opt {
+                    crate::journal::UndoMetadata::CopyWithOverwrite {
+                        created_dst: dst.to_path_buf(),
+                        backup_path: bk,
+                    }
+                } else {
+                    crate::journal::UndoMetadata::Copy {
+                        created_dst: dst.to_path_buf(),
+                    }
+                };
+                self.record_success(op.id, Some(src), Some(dst), collision_details, Some(undo))?;
             }
-            crate::model::Operation::Rename { src: src_path, dst: dst_path } => {
-                // Alias for move within same directory
-                let src = src.unwrap_or_else(|| src_path.as_path());
-                let dst = dst.unwrap_or_else(|| dst_path.as_path());
+            crate::model::Operation::Rename {
+                src: src_path,
+                dst: dst_path,
+            } => {
+                let src = src.unwrap_or(src_path.as_path());
+                let dst = if op.resolved_dst.is_some() {
+                    &final_dst_path
+                } else {
+                    dst_path.as_path()
+                };
                 let _result = crate::fsops::mv(src, dst, false)?;
-                let undo = crate::journal::UndoMetadata::Move { original_src: src.to_path_buf() };
-                self.record_success(op.id, Some(src), Some(dst), None, Some(undo))?;
+
+                let undo = if let Some(bk) = backup_path_opt {
+                    crate::journal::UndoMetadata::MoveWithOverwrite {
+                        original_src: src.to_path_buf(),
+                        backup_path: bk,
+                    }
+                } else {
+                    crate::journal::UndoMetadata::Move {
+                        original_src: src.to_path_buf(),
+                    }
+                };
+                self.record_success(op.id, Some(src), Some(dst), collision_details, Some(undo))?;
             }
             crate::model::Operation::Trash { src: src_path } => {
-                let src = src.unwrap_or_else(|| src_path.as_path());
+                let src = src.unwrap_or(src_path.as_path());
                 let result = crate::fsops::trash(src)?;
-                let undo = crate::journal::UndoMetadata::Move { original_src: src.to_path_buf() };
+                let undo = crate::journal::UndoMetadata::Move {
+                    original_src: src.to_path_buf(),
+                };
                 self.record_success(op.id, Some(src), Some(&result.final_dst), None, Some(undo))?;
             }
         }
@@ -144,6 +237,30 @@ impl TransactionManager {
                     crate::journal::UndoMetadata::Overwrite { backup_path } => {
                         let dst = entry.dst.as_ref().context("missing dst in journal")?;
                         crate::fsops::mv(backup_path, dst, false)?;
+                    }
+                    crate::journal::UndoMetadata::MoveWithOverwrite {
+                        original_src,
+                        backup_path,
+                    } => {
+                        let dst = entry.dst.as_ref().context("missing dst in journal")?;
+                        // 1. Move current dst back to original src (reversing the move)
+                        crate::fsops::mv(dst, original_src, false)?;
+                        // 2. Restore backup to dst
+                        crate::fsops::mv(backup_path, dst, false)?;
+                    }
+                    crate::journal::UndoMetadata::CopyWithOverwrite {
+                        created_dst,
+                        backup_path,
+                    } => {
+                        // 1. Remove the copy at dst
+                        if created_dst.is_file() {
+                            std::fs::remove_file(created_dst)?;
+                        } else if created_dst.is_dir() {
+                            std::fs::remove_dir_all(created_dst)?;
+                        }
+                        // 2. Restore backup to dst
+                        // Note: we used created_dst as the path, which should equal entry.dst
+                        crate::fsops::mv(backup_path, created_dst, false)?;
                     }
                 }
                 // Write undo journal entry
