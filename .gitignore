@@ -1,0 +1,14 @@
+/target
+**/*.rs.bk
+Cargo.lock
+/.vscode
+/.idea
+*.swp
+*.swo
+*~
+.DS_Store
+GE*.md
+CL*.md
+AGENTS.md
+CLAUDE.md
+GEMINI.md

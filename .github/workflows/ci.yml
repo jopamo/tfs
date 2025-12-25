@@ -1,0 +1,91 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches:
+    - main
+  schedule:
+  - cron: '00 01 * * *'
+jobs:
+  test:
+    name: test
+    env:
+      CARGO: cargo
+      RUST_BACKTRACE: 1
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        build:
+        - stable
+        - nightly
+        - macos
+        - win-msvc
+        include:
+        - build: stable
+          os: ubuntu-latest
+          rust: stable
+        - build: nightly
+          os: ubuntu-latest
+          rust: nightly
+        - build: macos
+          os: macos-latest
+          rust: stable
+        - build: win-msvc
+          os: windows-2022
+          rust: stable
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+
+    - name: Install ripgrep (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ripgrep
+
+    - name: Install ripgrep (macOS)
+      if: matrix.os == 'macos-latest'
+      run: brew install ripgrep
+
+    - name: Install ripgrep (Windows)
+      if: matrix.os == 'windows-2022'
+      run: choco install ripgrep
+
+    - name: Build
+      run: cargo build --verbose --workspace
+
+    - name: Run tests
+      run: cargo test --verbose --workspace
+
+  rustfmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        components: rustfmt
+    - name: Check formatting
+      run: cargo fmt --all --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: clippy
+      - name: Check clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
