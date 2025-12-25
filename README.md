@@ -1,6 +1,7 @@
 <div style="background-color: #1e1e1e; padding: 1em; display: inline-block; border-radius: 8px;">
   <img src=".github/tfs.png" alt="txed logo" width="300">
 </div>
+
 `tfs` is a **transactional filesystem operation engine** designed for two audiences:
 
 * **Humans** who want a safer, more explicit alternative to ad-hoc `mv` / `cp` scripting
