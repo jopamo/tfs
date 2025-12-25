@@ -1,5 +1,5 @@
-<div style="background-color: #1e1e1e; padding: 1em; display: inline-block; border-radius: 8px;">
-  <img src=".github/tfs.png" alt="txed logo" width="300">
+<div style="background-color:#1e1e1e; padding:1em; display:inline-block; border-radius:8px; text-align:left;">
+  <img src=".github/tfs.png" alt="tfs logo" width="300" style="display:block; margin:0;">
 </div>
 
 `tfs` is a **transactional filesystem operation engine** designed for two audiences:
