@@ -161,10 +161,8 @@ fn test_json_output() -> Result<()> {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_symlink_policies_follow_and_skip() -> Result<()> {
-    #[cfg(not(unix))]
-    return Ok(());
-
     let dir = tempdir()?;
     let root = dir.path().to_path_buf();
 
@@ -583,10 +581,8 @@ fn test_collision_overwrite_behavior() -> Result<()> {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_symlink_policy_error() -> Result<()> {
-    #[cfg(not(unix))]
-    return Ok(()); // Skip on non-unix
-
     let dir = tempdir()?;
     let root = dir.path().to_path_buf();
 
