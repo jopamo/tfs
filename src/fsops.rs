@@ -20,6 +20,7 @@ pub fn mkdir(dst: &Path, parents: bool) -> Result<()> {
 }
 
 /// Check if two paths are on the same filesystem.
+#[cfg(unix)]
 fn same_filesystem(src: &Path, dst: &Path) -> Result<bool> {
     use std::os::unix::fs::MetadataExt;
     let src_meta = std::fs::metadata(src).context("failed to stat source")?;
@@ -27,6 +28,21 @@ fn same_filesystem(src: &Path, dst: &Path) -> Result<bool> {
     let dst_parent_meta =
         std::fs::metadata(dst_parent).context("failed to stat destination parent")?;
     Ok(src_meta.dev() == dst_parent_meta.dev())
+}
+
+#[cfg(windows)]
+fn same_filesystem(src: &Path, dst: &Path) -> Result<bool> {
+    use std::os::windows::fs::MetadataExt;
+    let src_meta = std::fs::metadata(src).context("failed to stat source")?;
+    let dst_parent = dst.parent().unwrap_or_else(|| Path::new("."));
+    let dst_parent_meta =
+        std::fs::metadata(dst_parent).context("failed to stat destination parent")?;
+    Ok(src_meta.volume_serial_number() == dst_parent_meta.volume_serial_number())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn same_filesystem(_src: &Path, _dst: &Path) -> Result<bool> {
+    Ok(false)
 }
 
 /// Move a file or directory.
