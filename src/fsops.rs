@@ -31,13 +31,10 @@ fn same_filesystem(src: &Path, dst: &Path) -> Result<bool> {
 }
 
 #[cfg(windows)]
-fn same_filesystem(src: &Path, dst: &Path) -> Result<bool> {
-    use std::os::windows::fs::MetadataExt;
-    let src_meta = std::fs::metadata(src).context("failed to stat source")?;
-    let dst_parent = dst.parent().unwrap_or_else(|| Path::new("."));
-    let dst_parent_meta =
-        std::fs::metadata(dst_parent).context("failed to stat destination parent")?;
-    Ok(src_meta.volume_serial_number() == dst_parent_meta.volume_serial_number())
+fn same_filesystem(_src: &Path, _dst: &Path) -> Result<bool> {
+    // volume_serial_number is unstable (feature `windows_by_handle`).
+    // Fallback to copy+delete which is safe but slower.
+    Ok(false)
 }
 
 #[cfg(not(any(unix, windows)))]
