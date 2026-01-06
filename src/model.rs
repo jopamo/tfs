@@ -162,8 +162,13 @@ mod tests {
 
     #[test]
     fn test_plan_validation() {
+        #[cfg(not(windows))]
+        let root = PathBuf::from("/absolute/path");
+        #[cfg(windows)]
+        let root = PathBuf::from(r"C:\absolute\path");
+
         let plan = Plan {
-            root: "/absolute/path".into(),
+            root,
             transaction: TransactionMode::All,
             collision_policy: CollisionPolicy::Fail,
             symlink_policy: SymlinkPolicy::Error,

@@ -3,38 +3,21 @@ use std::path::{Component, Path, PathBuf};
 
 /// Normalize a path lexically (resolve `.` and `..` without accessing filesystem).
 fn normalize_lexical(path: &Path) -> PathBuf {
-    let mut components = Vec::new();
+    let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                components.pop();
+                normalized.pop();
             }
-            Component::Normal(c) => components.push(c),
-            Component::RootDir => {
-                components.clear();
-                components.push(std::ffi::OsStr::new("/"));
-            }
-            Component::Prefix(_) => {
-                // Windows prefixes, keep them if needed, but for now mostly unix focus
-                components.push(component.as_os_str());
-            }
+            component => normalized.push(component.as_os_str()),
         }
     }
-    // Reconstruct
-    let mut result = PathBuf::new();
-    if components.is_empty() {
-        return PathBuf::from(".");
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
     }
-    // Handle root specially if it was cleared
-    for (i, c) in components.iter().enumerate() {
-        if i == 0 && c == &std::ffi::OsStr::new("/") {
-            result.push("/");
-        } else {
-            result.push(c);
-        }
-    }
-    result
 }
 
 /// Resolve a path relative to root, ensuring it stays within root.
